@@ -4,7 +4,9 @@
 import logging
 from telethon import TelegramClient, events, Button
 from decouple import config
-from requests import get
+import requests
+from telethon.errors.rpcerrorlist import QueryIdInvalidError
+import re
 
 logging.basicConfig(
     format="[%(levelname) 5s/%(asctime)s] %(name)s: %(message)s", level=logging.INFO
@@ -35,9 +37,9 @@ else:
     exit()
 
 base_url = "https://is.gd/create.php?format=simple&url="
+dagd_url = "https://da.gd/s?url="
 
-
-@BotzHub.on(events.NewMessage(incoming=True, pattern="^/start"))
+@BotzHub.on(events.NewMessage(incoming=True, pattern="^/start$"))
 async def msgg(event):
     await send_start(event, "msg")
 
@@ -67,7 +69,25 @@ async def bk(event):
 async def fn_(event):
     if event.text.startswith("/"):
         return  # ignore commands.
-    await event.reply(link_shortener(event.text))
+    await event.reply(
+        "Select the shortenert service.",
+        buttons=[
+            Button.inline("is.gd", data=f"i_{event.text}"),
+            Button.inline("da.gd", data=f"d_{event.text}")
+        ])
+
+@BotzHub.on(events.callbackquery.CallbackQuery(data=re.compile(b"i_(.*)")))
+async def in_pl(event):
+    await event.answer("Processing...")
+    tmp = event.data_match.group(1).decode("UTF-8")
+    return await event.edit(link_shortener(tmp))
+
+
+@BotzHub.on(events.callbackquery.CallbackQuery(data=re.compile(b"d_(.*)")))
+async def in_pl(event):
+    await event.answer("Processing...")
+    tmp = event.data_match.group(1).decode("UTF-8")
+    return await event.edit(dagd_shrt(tmp))
 
 
 @BotzHub.on(events.InlineQuery)
@@ -77,18 +97,25 @@ async def in_q(event):
             [], switch_pm="Enter a URL to shorten it.", switch_pm_param="xx"
         )
     else:
-        await event.answer(
-            [
-                await event.builder.article(
-                    title="Click Here.",
-                    description=link_shortener(event.text),
-                    text=link_shortener(event.text),
-                )
-            ],
-            switch_pm="Shortener",
-            switch_pm_param="xx",
-        )
-
+        try:
+            await event.answer(
+                [
+                    await event.builder.article(
+                        title="is.gd shortener.",
+                        description=link_shortener(event.text),
+                        text=link_shortener(event.text),
+                    ),
+                    await event.builder.article(
+                        title="da.gd shortener.",
+                        description=dagd_shrt(event.text),
+                        text=dagd_shrt(event.text),
+                    ),
+                ],
+                switch_pm="Shortener",
+                switch_pm_param="xx",
+            )
+        except QueryIdInvalidError:
+            await event.answer([], switch_pm="Busy. Please try again.", switch_pm_param="xx")
 
 buttons = [
     [Button.inline("Help", data="help")],
@@ -113,8 +140,27 @@ async def send_start(event, mode):
 
 def link_shortener(url):
     req_ = f"{base_url}{url}"
-    return get(req_).text
+    try:
+        requests.get(req_)
+    except requests.exceptions.ConnectionError:
+        return "Invalid URL!"
+    return requests.get(req_).text
 
+
+def dagd_shrt(url):
+    if not (url.startswith("http://") or url.startswith("https://")):
+        r = f"http://{url}"
+    else:
+        r = url
+    try:
+        requests.get(r)
+    except requests.exceptions.ConnectionError:
+        return "Invalid URL!"
+    tmp = requests.get(f"{dagd_url}{r}").text
+    if tmp:
+        return tmp
+    else:
+        return "404. Not Available."
 
 print("Bot has started.")
 print("Do visit @BotzHub..")
