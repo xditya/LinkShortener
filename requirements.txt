@@ -1,3 +1,4 @@
 python-decouple
-telethon
+pyrogram
 requests
+tgcrypto

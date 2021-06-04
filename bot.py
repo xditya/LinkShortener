@@ -2,21 +2,24 @@
 # This file is a part of LinkShortener < https://github.com/xditya/LinkShortener >
 
 import logging
-from telethon import TelegramClient, events, Button
 from decouple import config
+from pyrogram import Client, filters
+from pyrogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputTextMessageContent,
+    InlineQueryResultArticle,
+)
 import requests
-from telethon.errors.rpcerrorlist import QueryIdInvalidError
-import re
 
 logging.basicConfig(
-    format="[%(levelname) 5s/%(asctime)s] %(name)s: %(message)s", level=logging.INFO
+    format="[%(levelname) 5s/%(asctime)s] %(name)s: %(message)s", level=logging.WARNING
 )
 
 bottoken = None
+
 # start the bot
 print("Starting...")
-apiid = 6
-apihash = "eb06d4abfb49dc3eeb1aeb98ae0f581e"
 try:
     bottoken = config("BOT_TOKEN")
 except:
@@ -26,7 +29,12 @@ except:
 
 if bottoken != None:
     try:
-        BotzHub = TelegramClient("bot", apiid, apihash).start(bot_token=bottoken)
+        app = Client(
+            "bot",
+            api_id=6,
+            api_hash="eb06d4abfb49dc3eeb1aeb98ae0f581e",
+            bot_token=bottoken,
+        )
     except Exception as e:
         print(f"ERROR!\n{str(e)}")
         print("Bot is quiting...")
@@ -39,103 +47,130 @@ else:
 base_url = "https://is.gd/create.php?format=simple&url="
 dagd_url = "https://da.gd/s?url="
 
-@BotzHub.on(events.NewMessage(incoming=True, pattern="^/start$"))
-async def msgg(event):
-    await send_start(event, "msg")
+
+@app.on_message(filters.command("start") & filters.private)
+async def start_message(_, message):
+    await send_start(message)
 
 
-@BotzHub.on(events.NewMessage(incoming=True, pattern="^/start xx"))
-async def msgg(event):
-    await send_start(event, "msg")
+@app.on_message(filters.command("start xx") & filters.private)
+async def start_message_scam(_, message):
+    await send_start(message)
 
 
-@BotzHub.on(events.callbackquery.CallbackQuery(data="help"))
-async def send_help(event):
-    await event.edit(
-        "**URL Shortener.**\n\nSend me any URL and I'll shorten it for you!\nJoin @BotzHub if you liked this bot!",
-        buttons=[
-            [Button.switch_inline("Go Inline", query="", same_peer=True)],
-            [Button.inline("« Back", data="bck")],
-        ],
+@app.on_message(filters.private)
+async def shorten(_, message):
+    url = message.text
+    if url.startswith("/"):
+        return  # ignore commands.
+    await message.reply_text(
+        "Choose the shortening service.",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("is.gd", callback_data=f"i_{url}")],
+                [InlineKeyboardButton("da.gd", callback_data=f"d_{url}")],
+            ]
+        ),
     )
 
 
-@BotzHub.on(events.callbackquery.CallbackQuery(data="bck"))
-async def bk(event):
-    await send_start(event, "")
+@app.on_callback_query(filters.regex("i_(.*)"))
+async def shrt_is(_, update):
+    url = update.data.split("_")[1]
+    await update.answer("Please wait...")
+    shrt = link_shortener(url)
+    await update.message.edit(f"**Shortened!**\n{shrt}")
 
 
-@BotzHub.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
-async def fn_(event):
-    if event.text.startswith("/"):
-        return  # ignore commands.
-    await event.reply(
-        "Select the shortenert service.",
-        buttons=[
-            Button.inline("is.gd", data=f"i_{event.text}"),
-            Button.inline("da.gd", data=f"d_{event.text}")
-        ])
-
-@BotzHub.on(events.callbackquery.CallbackQuery(data=re.compile(b"i_(.*)")))
-async def in_pl(event):
-    await event.answer("Processing...")
-    tmp = event.data_match.group(1).decode("UTF-8")
-    return await event.edit(link_shortener(tmp))
+@app.on_callback_query(filters.regex("d_(.*)"))
+async def shrt_da(_, update):
+    url = update.data.split("_")[1]
+    await update.answer("Please wait...")
+    shrt = dagd_shrt(url)
+    await update.message.edit(f"**Shortened!**\n{shrt}")
 
 
-@BotzHub.on(events.callbackquery.CallbackQuery(data=re.compile(b"d_(.*)")))
-async def in_pl(event):
-    await event.answer("Processing...")
-    tmp = event.data_match.group(1).decode("UTF-8")
-    return await event.edit(dagd_shrt(tmp))
-
-
-@BotzHub.on(events.InlineQuery)
-async def in_q(event):
-    if len(event.text) == 0:
-        await event.answer(
-            [], switch_pm="Enter a URL to shorten it.", switch_pm_param="xx"
-        )
-    else:
-        try:
-            await event.answer(
+@app.on_callback_query(filters.regex("help"))
+async def help_me(_, update):
+    await update.message.edit(
+        "**URL Shortener.**\n\nSend me any URL and I'll shorten it for you!\nJoin @BotzHub if you liked this bot!",
+        reply_markup=InlineKeyboardMarkup(
+            [
                 [
-                    await event.builder.article(
-                        title="is.gd shortener.",
-                        description=link_shortener(event.text),
-                        text=link_shortener(event.text),
-                    ),
-                    await event.builder.article(
-                        title="da.gd shortener.",
-                        description=dagd_shrt(event.text),
-                        text=dagd_shrt(event.text),
-                    ),
+                    InlineKeyboardButton(
+                        "Go Inline",
+                        switch_inline_query_current_chat="https://youtube.com/xditya",
+                    )
                 ],
-                switch_pm="Shortener",
-                switch_pm_param="xx",
-            )
-        except QueryIdInvalidError:
-            await event.answer([], switch_pm="Busy. Please try again.", switch_pm_param="xx")
-
-buttons = [
-    [Button.inline("Help", data="help")],
-    [
-        Button.url("Channel", url="t.me/BotzHub"),
-        Button.url("Source", url="https://github.com/xditya/LinkShortener"),
-    ],
-]
+                [InlineKeyboardButton("« Back", callback_data="bck")],
+            ]
+        ),
+    )
 
 
-async def send_start(event, mode):
-    user_ = await BotzHub.get_entity(event.sender_id)
-    if mode == "msg":
-        await event.reply(
-            f"Hi {user_.first_name}.\n\nI am a URL shortener bot!", buttons=buttons
+@app.on_callback_query(filters.regex("bck"))
+async def backk(_, update):
+    user = update.from_user.mention
+    await update.message.edit(
+        f"Hi {user}! Welcome to my bot.",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("Channel", url="https://t.me/BotzHub"),
+                    InlineKeyboardButton("Help", callback_data="help"),
+                ]
+            ]
+        ),
+    )
+
+
+@app.on_inline_query()
+async def query_ans(client, query):
+    if query.query == "":
+        await client.answer_inline_query(
+            query.id,
+            results=[],
+            cache_time=0,
+            switch_pm_text="Enter a URL",
+            switch_pm_parameter="xx",
         )
     else:
-        await event.edit(
-            f"Hi {user_.first_name}.\n\nI am a URL shortener bot!", buttons=buttons
+        url = query.query
+        shrt = link_shortener(url)
+        da_shrt = dagd_shrt(url)
+        await client.answer_inline_query(
+            query.id,
+            results=[
+                InlineQueryResultArticle(
+                    title="is.gd",
+                    description=shrt,
+                    input_message_content=InputTextMessageContent(shrt),
+                ),
+                InlineQueryResultArticle(
+                    title="da.gd",
+                    description=da_shrt,
+                    input_message_content=InputTextMessageContent(da_shrt),
+                ),
+            ],
+            cache_time=0,
+            switch_pm_text="Shortened!",
+            switch_pm_parameter="xx",
         )
+
+
+async def send_start(message):
+    user = message.from_user.mention
+    await message.reply_text(
+        f"Hi {user}! Welcome to my bot.",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("Channel", url="https://t.me/BotzHub"),
+                    InlineKeyboardButton("Help", callback_data="help"),
+                ]
+            ]
+        ),
+    )
 
 
 def link_shortener(url):
@@ -162,6 +197,7 @@ def dagd_shrt(url):
     else:
         return "404. Not Available."
 
-print("Bot has started.")
-print("Do visit @BotzHub..")
-BotzHub.run_until_disconnected()
+
+app.set_parse_mode("markdown")
+print("Started.")
+app.run()
